@@ -29,16 +29,15 @@ export async function middleware(request: NextRequest) {
     .eq("auth_uid", user.id)
     .single<{ role: string }>();
 
-  // If no app user record found, redirect to login
-  // (user exists in auth but not in app users table yet)
+  // If no app user record yet, default to admin dashboard
+  // (the trigger should have created a record, but handle edge case)
   if (!appUser) {
-    // For root path, allow through (will be handled by page)
     if (pathname === "/") {
-      return supabaseResponse;
+      const url = request.nextUrl.clone();
+      url.pathname = "/admin/dashboard";
+      return NextResponse.redirect(url);
     }
-    const url = request.nextUrl.clone();
-    url.pathname = "/login";
-    return NextResponse.redirect(url);
+    return supabaseResponse;
   }
 
   const role = appUser.role;
@@ -78,13 +77,6 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    /*
-     * Match all request paths except:
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
-     * - public files (images etc)
-     */
     "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };
