@@ -119,14 +119,12 @@ function GbpPageContent() {
   const handleLoadAccounts = async () => {
     try {
       setLoading(true);
-      const { fetchGbpAccounts } = await import("@/lib/google/sync");
-      const res = await fetch("/api/google/status");
-      const statusData = await res.json();
-      if (!statusData.org_id) throw new Error("組織情報が取得できません");
-      const accts = await fetchGbpAccounts(statusData.org_id);
-      setAccounts(accts);
-      if (accts.length > 0) {
-        setSelectedAccount(accts[0].name);
+      const res = await fetch("/api/google/accounts");
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "アカウント取得に失敗");
+      setAccounts(data.accounts || []);
+      if (data.accounts?.length > 0) {
+        setSelectedAccount(data.accounts[0].name);
       }
     } catch (err) {
       setMessage({ type: "error", text: `アカウント取得エラー: ${err instanceof Error ? err.message : "不明"}` });
@@ -139,12 +137,10 @@ function GbpPageContent() {
     if (!selectedAccount) return;
     try {
       setLoadingLocations(true);
-      const { fetchGbpLocations } = await import("@/lib/google/sync");
-      const res = await fetch("/api/google/status");
-      const statusData = await res.json();
-      if (!statusData.org_id) throw new Error("組織情報が取得できません");
-      const locs = await fetchGbpLocations(statusData.org_id, selectedAccount);
-      setGbpLocations(locs);
+      const res = await fetch(`/api/google/accounts?action=locations&account=${encodeURIComponent(selectedAccount)}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "ロケーション取得に失敗");
+      setGbpLocations(data.locations || []);
     } catch (err) {
       setMessage({ type: "error", text: `ロケーション取得エラー: ${err instanceof Error ? err.message : "不明"}` });
     } finally {
@@ -404,9 +400,18 @@ function GbpPageContent() {
                                     onValueChange={(appLocId) => {
                                       const accountId = selectedAccount;
                                       const placeId = loc.metadata?.placeId || null;
-                                      import("@/lib/google/sync").then(({ linkGbpLocation }) =>
-                                        linkGbpLocation(appLocId, accountId, loc.name, placeId)
-                                      ).then(() => {
+                                      fetch("/api/google/link", {
+                                        method: "POST",
+                                        headers: { "Content-Type": "application/json" },
+                                        body: JSON.stringify({
+                                          locationId: appLocId,
+                                          gbpAccountId: accountId,
+                                          gbpLocationName: loc.name,
+                                          gbpPlaceId: placeId,
+                                        }),
+                                      }).then(async (res) => {
+                                        const data = await res.json();
+                                        if (!res.ok) throw new Error(data.error);
                                         setMessage({ type: "success", text: `${loc.title} をリンクしました` });
                                         checkConnection();
                                       }).catch((err: unknown) => {
