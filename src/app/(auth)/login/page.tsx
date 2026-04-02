@@ -16,6 +16,8 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
+  const envOk = !!(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -101,6 +103,13 @@ export default function LoginPage() {
                 required
               />
             </div>
+
+            {!envOk && (
+              <div className="rounded-md bg-yellow-50 p-3 text-sm text-yellow-800 border border-yellow-200">
+                Supabase環境変数がクライアントに埋め込まれていません。
+                Vercelで環境変数を設定後、「Redeploy」→「Redeploy」（新規ビルド）を実行してください。
+              </div>
+            )}
 
             {error && (
               <div className="rounded-md bg-red-50 p-3 text-sm text-red-600">
