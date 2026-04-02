@@ -137,10 +137,16 @@ function GbpPageContent() {
     if (!selectedAccount) return;
     try {
       setLoadingLocations(true);
-      const res = await fetch(`/api/google/accounts?action=locations&account=${encodeURIComponent(selectedAccount)}`);
+      const res = await fetch(
+        `/api/google/accounts?action=locations&account=${encodeURIComponent(selectedAccount)}&import=true`
+      );
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "ロケーション取得に失敗");
       setGbpLocations(data.locations || []);
+      if (data.imported?.length > 0) {
+        setMessage({ type: "success", text: data.message });
+        checkConnection();
+      }
     } catch (err) {
       setMessage({ type: "error", text: `ロケーション取得エラー: ${err instanceof Error ? err.message : "不明"}` });
     } finally {
