@@ -88,6 +88,10 @@ function GbpPageContent() {
       setMessage({ type: "success", text: "Googleアカウントの接続に成功しました" });
     } else if (error) {
       const errorMessages: Record<string, string> = {
+        google_not_configured: "GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET が環境変数に設定されていません。Vercelの設定 → Environment Variables で追加してください",
+        user_lookup_failed: "ユーザー情報の取得に失敗しました",
+        permission_denied: "この操作にはadminまたはoperator権限が必要です",
+        connect_failed: "Google接続処理でエラーが発生しました",
         missing_code: "認証コードが取得できませんでした",
         no_refresh_token: "リフレッシュトークンが取得できませんでした。再度接続してください",
         db_error: "トークンの保存に失敗しました",
