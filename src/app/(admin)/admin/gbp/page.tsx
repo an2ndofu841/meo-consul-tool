@@ -120,23 +120,30 @@ function GbpPageContent() {
   const handleLoadAccounts = async (refresh = false) => {
     try {
       setLoading(true);
+      setMessage({ type: "success", text: "アカウント取得中...（レート制限時は自動リトライします。最大1分程度かかる場合があります）" });
       const url = refresh ? "/api/google/accounts?refresh=true" : "/api/google/accounts";
       const res = await fetch(url);
       const data = await res.json();
       if (!res.ok) {
-        if (data.retryable) {
-          setMessage({ type: "error", text: data.error });
-          return;
+        const detail = data.rawError ? `\n\n詳細: ${data.rawError}` : "";
+        if (data.quotaError) {
+          setMessage({
+            type: "error",
+            text: `${data.error}${detail}\n\nGoogle Cloud Console → APIとサービス → 有効なAPI → My Business Account Management API → 割り当てタブ でクォータを確認してください。`,
+          });
+        } else {
+          setMessage({ type: "error", text: `${data.error || "アカウント取得に失敗"}${detail}` });
         }
-        throw new Error(data.error || "アカウント取得に失敗");
+        return;
       }
       setAccounts(data.accounts || []);
       if (data.accounts?.length > 0) {
         setSelectedAccount(data.accounts[0].name);
       }
-      if (data.fromCache) {
-        setMessage({ type: "success", text: data.message });
-      }
+      setMessage(data.fromCache
+        ? { type: "success", text: data.message }
+        : { type: "success", text: `${data.accounts?.length || 0} 件のアカウントを取得しました` }
+      );
     } catch (err) {
       setMessage({ type: "error", text: `アカウント取得エラー: ${err instanceof Error ? err.message : "不明"}` });
     } finally {
@@ -298,7 +305,7 @@ function GbpPageContent() {
           ) : (
             <AlertCircle className="h-5 w-5 shrink-0" />
           )}
-          <span className="text-sm">{message.text}</span>
+          <span className="text-sm whitespace-pre-line">{message.text}</span>
           <button
             className="ml-auto text-sm underline"
             onClick={() => setMessage(null)}

@@ -3,7 +3,7 @@ import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { createAuthenticatedClient } from "@/lib/google/oauth";
 import { listAccounts, listLocations, type GbpLocation } from "@/lib/google/gbp-client";
 
-const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 async function getAuthForOrg(orgId: string) {
   const sc = createServiceClient();
@@ -59,6 +59,21 @@ async function setCachedData(sc: ReturnType<typeof createServiceClient>, orgId: 
   );
 }
 
+async function callWithRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const isQuota = msg.includes("Quota exceeded") || msg.includes("rateLimitExceeded");
+      if (!isQuota || attempt === maxRetries) throw err;
+      const waitMs = (attempt + 1) * 15000; // 15s, 30s, 45s
+      await new Promise(r => setTimeout(r, waitMs));
+    }
+  }
+  throw new Error("Max retries exceeded");
+}
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -94,7 +109,7 @@ export async function GET(request: Request) {
       }
 
       const auth = await getAuthForOrg(appUser.org_id);
-      const gbpLocations = await listLocations(auth, accountName);
+      const gbpLocations = await callWithRetry(() => listLocations(auth, accountName));
 
       await setCachedData(sc, appUser.org_id, "locations", accountName, gbpLocations);
 
@@ -167,7 +182,7 @@ export async function GET(request: Request) {
     }
 
     const auth = await getAuthForOrg(appUser.org_id);
-    const accounts = await listAccounts(auth);
+    const accounts = await callWithRetry(() => listAccounts(auth));
 
     await setCachedData(sc, appUser.org_id, "accounts", "", accounts);
 
@@ -176,13 +191,15 @@ export async function GET(request: Request) {
     const message = err instanceof Error ? err.message : "Unknown error";
     console.error("GBP accounts error:", message);
 
-    if (message.includes("Quota exceeded")) {
+    if (message.includes("Quota exceeded") || message.includes("rateLimitExceeded")) {
       return NextResponse.json({
-        error: "Google APIのレート制限に達しました。1〜2分後に再度お試しください。",
+        error: "Google APIのレート制限に達しました（自動リトライ3回失敗）。数分後に再度お試しください。",
+        quotaError: true,
+        rawError: message,
         retryable: true,
       }, { status: 429 });
     }
 
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: message, rawError: message }, { status: 500 });
   }
 }
