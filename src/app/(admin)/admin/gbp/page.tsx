@@ -30,17 +30,7 @@ import {
   Store,
   MapPin,
 } from "lucide-react";
-import {
-  getConnectionStatus,
-  fetchGbpAccounts,
-  fetchGbpLocations,
-  linkGbpLocation,
-  syncReviews,
-  syncPerformance,
-} from "@/lib/google/sync";
 import type { GbpAccount, GbpLocation } from "@/lib/google/gbp-client";
-
-const ORG_ID = "11111111-1111-1111-1111-111111111111";
 
 export default function GbpPage() {
   return (
@@ -70,8 +60,16 @@ function GbpPageContent() {
 
   const checkConnection = useCallback(async () => {
     try {
-      const status = await getConnectionStatus(ORG_ID);
-      setConnectionStatus(status);
+      const res = await fetch("/api/google/status");
+      const data = await res.json();
+      if (data.connected) {
+        setConnectionStatus({
+          google_email: data.google_email,
+          created_at: data.created_at,
+        });
+      } else {
+        setConnectionStatus(null);
+      }
     } catch {
       setConnectionStatus(null);
     } finally {
@@ -108,7 +106,11 @@ function GbpPageContent() {
   const handleLoadAccounts = async () => {
     try {
       setLoading(true);
-      const accts = await fetchGbpAccounts(ORG_ID);
+      const { fetchGbpAccounts } = await import("@/lib/google/sync");
+      const res = await fetch("/api/google/status");
+      const statusData = await res.json();
+      if (!statusData.org_id) throw new Error("組織情報が取得できません");
+      const accts = await fetchGbpAccounts(statusData.org_id);
       setAccounts(accts);
       if (accts.length > 0) {
         setSelectedAccount(accts[0].name);
@@ -124,7 +126,11 @@ function GbpPageContent() {
     if (!selectedAccount) return;
     try {
       setLoadingLocations(true);
-      const locs = await fetchGbpLocations(ORG_ID, selectedAccount);
+      const { fetchGbpLocations } = await import("@/lib/google/sync");
+      const res = await fetch("/api/google/status");
+      const statusData = await res.json();
+      if (!statusData.org_id) throw new Error("組織情報が取得できません");
+      const locs = await fetchGbpLocations(statusData.org_id, selectedAccount);
       setGbpLocations(locs);
     } catch (err) {
       setMessage({ type: "error", text: `ロケーション取得エラー: ${err instanceof Error ? err.message : "不明"}` });
@@ -151,7 +157,11 @@ function GbpPageContent() {
   const handleSyncReviews = async (locationId: string) => {
     try {
       setSyncing(`reviews-${locationId}`);
-      const result = await syncReviews(ORG_ID, locationId);
+      const { syncReviews } = await import("@/lib/google/sync");
+      const res = await fetch("/api/google/status");
+      const statusData = await res.json();
+      if (!statusData.org_id) throw new Error("組織情報が取得できません");
+      const result = await syncReviews(statusData.org_id, locationId);
       setMessage({ type: "success", text: `口コミ ${result.syncedCount} 件を同期しました` });
     } catch (err) {
       setMessage({ type: "error", text: `同期エラー: ${err instanceof Error ? err.message : "不明"}` });
@@ -163,13 +173,17 @@ function GbpPageContent() {
   const handleSyncPerformance = async (locationId: string) => {
     try {
       setSyncing(`perf-${locationId}`);
+      const { syncPerformance } = await import("@/lib/google/sync");
+      const res = await fetch("/api/google/status");
+      const statusData = await res.json();
+      if (!statusData.org_id) throw new Error("組織情報が取得できません");
       const today = new Date();
       const thirtyDaysAgo = new Date(today);
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
       const startDate = thirtyDaysAgo.toISOString().split("T")[0];
       const endDate = today.toISOString().split("T")[0];
 
-      const metrics = await syncPerformance(ORG_ID, locationId, startDate, endDate);
+      const metrics = await syncPerformance(statusData.org_id, locationId, startDate, endDate);
       setMessage({
         type: "success",
         text: `パフォーマンス取得完了 — 検索表示: ${metrics.searchViews}, マップ表示: ${metrics.mapViews}, 通話: ${metrics.phoneCallClicks}`,
@@ -379,15 +393,17 @@ function GbpPageContent() {
                                 const placeId = loc.metadata?.placeId || null;
                                 // For MVP: link to the first available location in DB
                                 // In production, show a dialog to select which app location to link
-                                linkGbpLocation(
-                                  "33333333-3333-3333-3333-333333333301", // placeholder
-                                  accountId,
-                                  loc.name,
-                                  placeId
+                                import("@/lib/google/sync").then(({ linkGbpLocation }) =>
+                                  linkGbpLocation(
+                                    "33333333-3333-3333-3333-333333333301",
+                                    accountId,
+                                    loc.name,
+                                    placeId
+                                  )
                                 ).then(() => {
                                   setMessage({ type: "success", text: `${loc.title} をリンクしました` });
-                                }).catch((err) => {
-                                  setMessage({ type: "error", text: err.message });
+                                }).catch((err: unknown) => {
+                                  setMessage({ type: "error", text: err instanceof Error ? err.message : "リンクに失敗" });
                                 });
                               }}
                             >
