@@ -1,100 +1,166 @@
 "use client";
 
-import { Eye, MapPin, Phone, Globe, Navigation } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Eye, MapPin, Phone, Globe, Star, Loader2, MessageSquare } from "lucide-react";
 import { KpiCard } from "@/components/dashboard/kpi-card";
-import { MultiLineChart } from "@/components/dashboard/multi-line-chart";
-import { AlertCard } from "@/components/shared/alert-card";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { SectionHeader } from "@/components/shared/section-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import {
-  kpiData,
-  kwRankTrend,
-  kwSeries,
-  taskSummary,
-  recentTasks,
-  recommendedActions,
-  clientAlerts,
-  pendingApprovals,
-} from "@/lib/mock-data";
+import { cn } from "@/lib/utils";
+import Link from "next/link";
+
+interface DashboardData {
+  date: string;
+  locations: Array<{
+    id: string;
+    name: string;
+    reviewScore: number;
+    reviewCount: number;
+    pendingTasks: number;
+    status: "good" | "warning" | "critical";
+    keywords: Array<{
+      keyword: string;
+      currentRank: number | null;
+      change: number;
+    }>;
+  }>;
+  recentReviews: Array<{
+    id: string;
+    rating: number;
+    author: string;
+    body: string | null;
+    locationName: string;
+    reviewed_at: string;
+    reply_status: string;
+  }>;
+  taskSummary: {
+    total: number;
+    completed: number;
+    inProgress: number;
+    pending: number;
+  };
+  todayTasks: Array<{
+    id: string;
+    title: string;
+    status: string;
+    dueDate: string;
+    locationName: string;
+  }>;
+  pendingApprovals: Array<{
+    id: string;
+    taskTitle: string;
+    locationName: string;
+    createdAt: string;
+  }>;
+  stats: {
+    totalLocations: number;
+    totalReviews: number;
+    overallAvgRating: number;
+    pendingReviewReplies: number;
+  };
+}
 
 export default function ClientDashboardPage() {
+  const [data, setData] = useState<DashboardData | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch("/api/dashboard")
+      .then((res) => res.json())
+      .then((d) => setData(d))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (!data || !data.stats) {
+    return (
+      <div className="py-10 text-center text-muted-foreground">
+        データの取得に失敗しました。ページを再読み込みしてください。
+      </div>
+    );
+  }
+
+  const firstLocation = data.locations[0];
+
   return (
     <div className="space-y-8">
-      {/* Page Header */}
       <div>
         <h1 className="text-2xl font-bold">ダッシュボード</h1>
         <p className="text-muted-foreground mt-1">
-          渋谷デンタルクリニック - 2026年2月
+          {firstLocation?.name || "店舗未登録"} — {data.date}
         </p>
       </div>
 
-      {/* Monthly Highlight */}
+      {/* Summary Highlight */}
       <Card className="bg-gradient-to-r from-blue-600 to-blue-700 text-white border-0">
         <CardContent className="p-6">
-          <h3 className="text-lg font-semibold mb-2">今月のハイライト</h3>
+          <h3 className="text-lg font-semibold mb-2">概要</h3>
           <p className="text-blue-100 leading-relaxed">
-            主要KW「渋谷 歯医者」が<span className="font-bold text-white">1位を獲得</span>しました。
-            表示回数は前月比+8.3%で順調に成長中。
-            口コミでは「待ち時間」に関する低評価が増加傾向のため、対策施策を提案しています。
+            {data.stats.totalLocations > 0 ? (
+              <>
+                現在 <span className="font-bold text-white">{data.stats.totalLocations} 店舗</span> を管理中。
+                口コミは合計 <span className="font-bold text-white">{data.stats.totalReviews} 件</span>
+                （平均 ★{data.stats.overallAvgRating}）。
+                {data.stats.pendingReviewReplies > 0 && (
+                  <>未返信の口コミが <span className="font-bold text-white">{data.stats.pendingReviewReplies} 件</span> あります。</>
+                )}
+                {data.taskSummary.pending > 0 && (
+                  <> 対応待ちのタスクが <span className="font-bold text-white">{data.taskSummary.pending} 件</span> あります。</>
+                )}
+              </>
+            ) : (
+              "ロケーションが登録されていません。管理者にお問い合わせください。"
+            )}
           </p>
         </CardContent>
       </Card>
 
       {/* KPI Cards */}
       <div>
-        <SectionHeader title="主要KPI" className="mb-4" />
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+        <SectionHeader title="主要指標" className="mb-4" />
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <KpiCard
-            title="表示回数"
-            value={kpiData.views.value}
-            change={kpiData.views.change}
-            changeLabel={kpiData.views.label}
-            icon={<Eye className="h-4 w-4" />}
+            title="総口コミ数"
+            value={data.stats.totalReviews.toLocaleString()}
+            change={0}
+            changeLabel=""
+            icon={<MessageSquare className="h-4 w-4" />}
           />
           <KpiCard
-            title="経路検索"
-            value={kpiData.directions.value}
-            change={kpiData.directions.change}
-            changeLabel={kpiData.directions.label}
+            title="平均評価"
+            value={data.stats.overallAvgRating ? `★${data.stats.overallAvgRating}` : "—"}
+            change={0}
+            changeLabel=""
+            icon={<Star className="h-4 w-4" />}
+          />
+          <KpiCard
+            title="担当店舗"
+            value={data.stats.totalLocations.toString()}
+            change={0}
+            changeLabel=""
             icon={<MapPin className="h-4 w-4" />}
           />
           <KpiCard
-            title="通話数"
-            value={kpiData.calls.value}
-            change={kpiData.calls.change}
-            changeLabel={kpiData.calls.label}
-            icon={<Phone className="h-4 w-4" />}
-          />
-          <KpiCard
-            title="ウェブサイト"
-            value={kpiData.website.value}
-            change={kpiData.website.change}
-            changeLabel={kpiData.website.label}
+            title="未返信口コミ"
+            value={data.stats.pendingReviewReplies.toString()}
+            change={data.stats.pendingReviewReplies > 0 ? -1 : 0}
+            changeLabel={data.stats.pendingReviewReplies > 0 ? "要対応" : "なし"}
             icon={<Globe className="h-4 w-4" />}
-          />
-          <KpiCard
-            title="ルート"
-            value={kpiData.routes.value}
-            change={kpiData.routes.change}
-            changeLabel={kpiData.routes.label}
-            icon={<Navigation className="h-4 w-4" />}
           />
         </div>
       </div>
 
-      {/* KW Rank Trend Chart */}
-      <MultiLineChart
-        title="主要キーワード順位推移（過去7日）"
-        data={kwRankTrend}
-        series={kwSeries}
-        invertY={true}
-        height={280}
-      />
-
-      {/* Two-column: Tasks + Alerts */}
+      {/* Two-column: Tasks + Reviews */}
       <div className="grid lg:grid-cols-2 gap-6">
         {/* Task Status */}
         <Card>
@@ -102,142 +168,142 @@ export default function ClientDashboardPage() {
             <CardTitle className="text-base font-semibold">施策実施状況</CardTitle>
           </CardHeader>
           <CardContent>
-            {/* Summary bar */}
             <div className="flex gap-4 mb-4 text-sm">
               <div className="flex items-center gap-1.5">
                 <div className="h-2.5 w-2.5 rounded-full bg-green-500" />
-                <span>完了 {taskSummary.completed}</span>
+                <span>完了 {data.taskSummary.completed}</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <div className="h-2.5 w-2.5 rounded-full bg-blue-500" />
-                <span>進行中 {taskSummary.inProgress}</span>
+                <span>進行中 {data.taskSummary.inProgress}</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <div className="h-2.5 w-2.5 rounded-full bg-gray-300" />
-                <span>未着手 {taskSummary.pending}</span>
+                <span>未着手 {data.taskSummary.pending}</span>
               </div>
             </div>
 
-            {/* Progress bar */}
-            <div className="h-2 rounded-full bg-gray-100 overflow-hidden mb-4">
-              <div className="h-full flex">
-                <div
-                  className="bg-green-500"
-                  style={{ width: `${(taskSummary.completed / taskSummary.total) * 100}%` }}
-                />
-                <div
-                  className="bg-blue-500"
-                  style={{ width: `${(taskSummary.inProgress / taskSummary.total) * 100}%` }}
-                />
-              </div>
-            </div>
-
-            {/* Task list */}
-            <div className="space-y-3">
-              {recentTasks.map((task) => (
-                <div key={task.id} className="flex items-center justify-between py-1.5">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <StatusBadge status={task.status} />
-                    <span className="text-sm truncate">{task.title}</span>
-                  </div>
-                  <span className="text-xs text-muted-foreground shrink-0 ml-2">
-                    {task.dueDate}
-                  </span>
+            {data.taskSummary.total > 0 && (
+              <div className="h-2 rounded-full bg-gray-100 overflow-hidden mb-4">
+                <div className="h-full flex">
+                  <div
+                    className="bg-green-500"
+                    style={{ width: `${(data.taskSummary.completed / data.taskSummary.total) * 100}%` }}
+                  />
+                  <div
+                    className="bg-blue-500"
+                    style={{ width: `${(data.taskSummary.inProgress / data.taskSummary.total) * 100}%` }}
+                  />
                 </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+              </div>
+            )}
 
-        {/* Alerts + Recommended Actions */}
-        <div className="space-y-6">
-          {/* Alerts */}
-          <div>
-            <SectionHeader title="アラート" className="mb-3" />
-            <div className="space-y-3">
-              {clientAlerts.map((alert, idx) => (
-                <AlertCard key={idx} {...alert} />
-              ))}
-            </div>
-          </div>
-
-          {/* Recommended Actions */}
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base font-semibold">
-                次月の推奨アクション
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
+            {data.todayTasks.length > 0 ? (
               <div className="space-y-3">
-                {recommendedActions.map((action) => (
-                  <div key={action.id} className="border rounded-lg p-3">
-                    <div className="flex items-center gap-2 mb-1">
-                      <Badge
-                        variant="outline"
-                        className={
-                          action.impact === "高"
-                            ? "border-red-200 text-red-700 bg-red-50"
-                            : "border-blue-200 text-blue-700 bg-blue-50"
-                        }
-                      >
-                        Impact: {action.impact}
-                      </Badge>
-                      <span className="text-sm font-medium">{action.title}</span>
+                {data.todayTasks.map((task) => (
+                  <div key={task.id} className="flex items-center justify-between py-1.5">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <StatusBadge status={task.status} />
+                      <span className="text-sm truncate">{task.title}</span>
                     </div>
-                    <p className="text-xs text-muted-foreground">{action.reason}</p>
+                    <span className="text-xs text-muted-foreground shrink-0 ml-2">
+                      {task.dueDate}
+                    </span>
                   </div>
                 ))}
               </div>
-            </CardContent>
-          </Card>
-        </div>
+            ) : (
+              <p className="text-sm text-muted-foreground text-center py-2">
+                対応待ちのタスクはありません
+              </p>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Recent Reviews */}
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base font-semibold">最新の口コミ</CardTitle>
+              <Button variant="ghost" size="sm" asChild>
+                <Link href="/client/reviews">全て表示</Link>
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {data.recentReviews.length > 0 ? (
+              <div className="space-y-3">
+                {data.recentReviews.slice(0, 5).map((review) => (
+                  <div key={review.id} className="border rounded-lg p-3">
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-1">
+                        {[1, 2, 3, 4, 5].map((s) => (
+                          <Star
+                            key={s}
+                            className={cn(
+                              "h-3 w-3",
+                              s <= review.rating
+                                ? "text-yellow-500 fill-yellow-500"
+                                : "text-gray-200"
+                            )}
+                          />
+                        ))}
+                        <span className="text-xs text-muted-foreground ml-1">{review.author}</span>
+                      </div>
+                      {review.reply_status === "pending" && (
+                        <Badge variant="outline" className="text-xs border-orange-200 text-orange-700 bg-orange-50">
+                          未返信
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-sm text-muted-foreground line-clamp-2">
+                      {review.body || "（コメントなし）"}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {review.locationName} · {new Date(review.reviewed_at).toLocaleDateString("ja-JP")}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                口コミはまだありません
+              </p>
+            )}
+          </CardContent>
+        </Card>
       </div>
 
       {/* Pending Approvals */}
-      <div>
-        <SectionHeader
-          title="承認待ち一覧"
-          description="管理側から提出された施策・投稿の承認をお願いします"
-          className="mb-4"
-        />
-        <div className="grid gap-4">
-          {pendingApprovals.map((item) => (
-            <Card key={item.id}>
-              <CardContent className="p-5">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <div className="space-y-1.5">
-                    <div className="flex items-center gap-2">
-                      <Badge variant="outline">{item.type}</Badge>
-                      <Badge
-                        variant="outline"
-                        className={
-                          item.impact === "高"
-                            ? "border-red-200 text-red-700 bg-red-50"
-                            : "border-blue-200 text-blue-700 bg-blue-50"
-                        }
-                      >
-                        Impact: {item.impact}
-                      </Badge>
+      {data.pendingApprovals.length > 0 && (
+        <div>
+          <SectionHeader
+            title="承認待ち一覧"
+            description="管理側から提出された施策の承認をお願いします"
+            className="mb-4"
+          />
+          <div className="grid gap-4">
+            {data.pendingApprovals.map((item) => (
+              <Card key={item.id}>
+                <CardContent className="p-5">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div className="space-y-1">
+                      <h4 className="font-semibold">{item.taskTitle}</h4>
+                      <p className="text-sm text-muted-foreground">
+                        {item.locationName} · {new Date(item.createdAt).toLocaleDateString("ja-JP")}
+                      </p>
                     </div>
-                    <h4 className="font-semibold">{item.title}</h4>
-                    <p className="text-sm text-muted-foreground">{item.description}</p>
-                    <p className="text-xs text-muted-foreground">
-                      提出者: {item.submittedBy} / {item.submittedAt}
-                    </p>
+                    <div className="flex gap-2 shrink-0">
+                      <Button size="sm" variant="outline">差戻し</Button>
+                      <Button size="sm">承認</Button>
+                    </div>
                   </div>
-                  <div className="flex gap-2 shrink-0">
-                    <Button size="sm" variant="outline">
-                      差戻し
-                    </Button>
-                    <Button size="sm">承認</Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                </CardContent>
+              </Card>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
