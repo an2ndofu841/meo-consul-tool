@@ -57,19 +57,32 @@ function GbpPageContent() {
   const [loadingLocations, setLoadingLocations] = useState(false);
   const [syncing, setSyncing] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [appLocations, setAppLocations] = useState<Array<{
+    id: string; name: string; address: string;
+    gbp_account_id: string | null; gbp_location_name: string | null;
+  }>>([]);
+  const [orgId, setOrgId] = useState<string | null>(null);
 
   const checkConnection = useCallback(async () => {
     try {
-      const res = await fetch("/api/google/status");
-      const data = await res.json();
-      if (data.connected) {
+      const [statusRes, locsRes] = await Promise.all([
+        fetch("/api/google/status"),
+        fetch("/api/google/locations"),
+      ]);
+      const statusData = await statusRes.json();
+      const locsData = await locsRes.json();
+
+      if (statusData.connected) {
         setConnectionStatus({
-          google_email: data.google_email,
-          created_at: data.created_at,
+          google_email: statusData.google_email,
+          created_at: statusData.created_at,
         });
       } else {
         setConnectionStatus(null);
       }
+
+      setOrgId(statusData.org_id || locsData.org_id || null);
+      setAppLocations(locsData.locations || []);
     } catch {
       setConnectionStatus(null);
     } finally {
@@ -157,12 +170,14 @@ function GbpPageContent() {
   const handleSyncReviews = async (locationId: string) => {
     try {
       setSyncing(`reviews-${locationId}`);
-      const { syncReviews } = await import("@/lib/google/sync");
-      const res = await fetch("/api/google/status");
-      const statusData = await res.json();
-      if (!statusData.org_id) throw new Error("組織情報が取得できません");
-      const result = await syncReviews(statusData.org_id, locationId);
-      setMessage({ type: "success", text: `口コミ ${result.syncedCount} 件を同期しました` });
+      const res = await fetch("/api/google/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "sync_reviews", locationId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "同期に失敗しました");
+      setMessage({ type: "success", text: `口コミ ${data.syncedCount} 件を同期しました` });
     } catch (err) {
       setMessage({ type: "error", text: `同期エラー: ${err instanceof Error ? err.message : "不明"}` });
     } finally {
@@ -173,20 +188,17 @@ function GbpPageContent() {
   const handleSyncPerformance = async (locationId: string) => {
     try {
       setSyncing(`perf-${locationId}`);
-      const { syncPerformance } = await import("@/lib/google/sync");
-      const res = await fetch("/api/google/status");
-      const statusData = await res.json();
-      if (!statusData.org_id) throw new Error("組織情報が取得できません");
-      const today = new Date();
-      const thirtyDaysAgo = new Date(today);
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-      const startDate = thirtyDaysAgo.toISOString().split("T")[0];
-      const endDate = today.toISOString().split("T")[0];
-
-      const metrics = await syncPerformance(statusData.org_id, locationId, startDate, endDate);
+      const res = await fetch("/api/google/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "sync_performance", locationId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "取得に失敗しました");
+      const m = data.metrics;
       setMessage({
         type: "success",
-        text: `パフォーマンス取得完了 — 検索表示: ${metrics.searchViews}, マップ表示: ${metrics.mapViews}, 通話: ${metrics.phoneCallClicks}`,
+        text: `パフォーマンス取得完了 — 検索: ${m.searchViews}, マップ: ${m.mapViews}, 通話: ${m.phoneCallClicks}`,
       });
     } catch (err) {
       setMessage({ type: "error", text: `同期エラー: ${err instanceof Error ? err.message : "不明"}` });
@@ -385,31 +397,39 @@ function GbpPageContent() {
                             </Badge>
                           </TableCell>
                           <TableCell className="text-right">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => {
-                                const accountId = selectedAccount;
-                                const placeId = loc.metadata?.placeId || null;
-                                // For MVP: link to the first available location in DB
-                                // In production, show a dialog to select which app location to link
-                                import("@/lib/google/sync").then(({ linkGbpLocation }) =>
-                                  linkGbpLocation(
-                                    "33333333-3333-3333-3333-333333333301",
-                                    accountId,
-                                    loc.name,
-                                    placeId
-                                  )
-                                ).then(() => {
-                                  setMessage({ type: "success", text: `${loc.title} をリンクしました` });
-                                }).catch((err: unknown) => {
-                                  setMessage({ type: "error", text: err instanceof Error ? err.message : "リンクに失敗" });
-                                });
-                              }}
-                            >
-                              <LinkIcon className="mr-1 h-3 w-3" />
-                              リンク
-                            </Button>
+                            <div className="flex items-center gap-2 justify-end">
+                              {appLocations.length > 0 ? (
+                                <>
+                                  <Select
+                                    onValueChange={(appLocId) => {
+                                      const accountId = selectedAccount;
+                                      const placeId = loc.metadata?.placeId || null;
+                                      import("@/lib/google/sync").then(({ linkGbpLocation }) =>
+                                        linkGbpLocation(appLocId, accountId, loc.name, placeId)
+                                      ).then(() => {
+                                        setMessage({ type: "success", text: `${loc.title} をリンクしました` });
+                                        checkConnection();
+                                      }).catch((err: unknown) => {
+                                        setMessage({ type: "error", text: err instanceof Error ? err.message : "リンクに失敗" });
+                                      });
+                                    }}
+                                  >
+                                    <SelectTrigger className="w-[160px] h-8 text-xs">
+                                      <SelectValue placeholder="リンク先を選択" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {appLocations.map((appLoc) => (
+                                        <SelectItem key={appLoc.id} value={appLoc.id}>
+                                          {appLoc.name}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">ロケーション未登録</span>
+                              )}
+                            </div>
                           </TableCell>
                         </TableRow>
                       ))}
@@ -425,53 +445,83 @@ function GbpPageContent() {
             <CardHeader>
               <CardTitle className="text-lg">データ同期</CardTitle>
               <CardDescription>
-                リンク済みのロケーションからデータを取得します
+                GBPリンク済みのロケーションからデータを取得します
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Card className="border shadow-none">
-                  <CardContent className="p-4">
-                    <h4 className="font-medium mb-2">口コミ同期</h4>
-                    <p className="text-sm text-muted-foreground mb-3">
-                      GBPの口コミを取得してデータベースに保存します
-                    </p>
-                    <Button
-                      size="sm"
-                      onClick={() => handleSyncReviews("33333333-3333-3333-3333-333333333301")}
-                      disabled={syncing !== null}
-                    >
-                      {syncing?.startsWith("reviews") ? (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      ) : (
-                        <RefreshCw className="mr-2 h-4 w-4" />
-                      )}
-                      口コミを同期
-                    </Button>
-                  </CardContent>
-                </Card>
+              {(() => {
+                const linkedLocations = appLocations.filter(l => l.gbp_location_name);
+                const unlinkedLocations = appLocations.filter(l => !l.gbp_location_name);
 
-                <Card className="border shadow-none">
-                  <CardContent className="p-4">
-                    <h4 className="font-medium mb-2">パフォーマンス取得</h4>
-                    <p className="text-sm text-muted-foreground mb-3">
-                      過去30日間の表示回数・通話・経路検索等を取得します
+                if (appLocations.length === 0) {
+                  return (
+                    <p className="text-sm text-muted-foreground">
+                      ロケーションが登録されていません。先に管理画面でロケーションを追加してください。
                     </p>
-                    <Button
-                      size="sm"
-                      onClick={() => handleSyncPerformance("33333333-3333-3333-3333-333333333301")}
-                      disabled={syncing !== null}
-                    >
-                      {syncing?.startsWith("perf") ? (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      ) : (
-                        <RefreshCw className="mr-2 h-4 w-4" />
-                      )}
-                      パフォーマンス取得
-                    </Button>
-                  </CardContent>
-                </Card>
-              </div>
+                  );
+                }
+
+                if (linkedLocations.length === 0) {
+                  return (
+                    <p className="text-sm text-muted-foreground">
+                      GBPにリンクされたロケーションがありません。上の「GBPアカウント / ロケーション」セクションでリンクしてください。
+                      <br />
+                      <span className="text-xs mt-1 block">登録済みロケーション: {unlinkedLocations.map(l => l.name).join(", ")}</span>
+                    </p>
+                  );
+                }
+
+                return (
+                  <div className="space-y-4">
+                    {linkedLocations.map((loc) => (
+                      <Card key={loc.id} className="border shadow-none">
+                        <CardContent className="p-4">
+                          <div className="flex items-center justify-between mb-3">
+                            <div>
+                              <h4 className="font-medium flex items-center gap-2">
+                                <MapPin className="h-4 w-4 text-muted-foreground" />
+                                {loc.name}
+                              </h4>
+                              <p className="text-xs text-muted-foreground mt-0.5">{loc.address}</p>
+                            </div>
+                            <Badge variant="outline" className="border-green-200 text-green-700 bg-green-50">
+                              GBPリンク済み
+                            </Badge>
+                          </div>
+                          <div className="flex gap-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleSyncReviews(loc.id)}
+                              disabled={syncing !== null}
+                            >
+                              {syncing === `reviews-${loc.id}` ? (
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              ) : (
+                                <RefreshCw className="mr-2 h-4 w-4" />
+                              )}
+                              口コミ同期
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleSyncPerformance(loc.id)}
+                              disabled={syncing !== null}
+                            >
+                              {syncing === `perf-${loc.id}` ? (
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              ) : (
+                                <RefreshCw className="mr-2 h-4 w-4" />
+                              )}
+                              パフォーマンス取得
+                            </Button>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                );
+              })()}
             </CardContent>
           </Card>
 
