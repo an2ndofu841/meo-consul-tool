@@ -87,18 +87,21 @@ function GbpPageContent() {
     if (success === "connected") {
       setMessage({ type: "success", text: "Googleアカウントの接続に成功しました" });
     } else if (error) {
+      const errorKey = error.split(":")[0];
+      const errorDetail = error.includes(":") ? error.substring(error.indexOf(":") + 1) : "";
       const errorMessages: Record<string, string> = {
         google_not_configured: "GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET が環境変数に設定されていません。Vercelの設定 → Environment Variables で追加してください",
-        user_lookup_failed: "ユーザー情報の取得に失敗しました",
-        permission_denied: "この操作にはadminまたはoperator権限が必要です",
-        connect_failed: "Google接続処理でエラーが発生しました",
+        env_missing: `以下の環境変数がVercelに設定されていません: ${errorDetail}`,
+        user_lookup_failed: `ユーザー情報の取得に失敗しました: ${errorDetail}`,
+        permission_denied: `この操作にはadminまたはoperator権限が必要です (${errorDetail})`,
+        connect_failed: `Google接続処理でエラーが発生しました: ${errorDetail}`,
         missing_code: "認証コードが取得できませんでした",
         no_refresh_token: "リフレッシュトークンが取得できませんでした。再度接続してください",
         db_error: "トークンの保存に失敗しました",
         callback_failed: "コールバック処理に失敗しました",
         access_denied: "アクセスが拒否されました",
       };
-      setMessage({ type: "error", text: errorMessages[error] || `エラー: ${error}` });
+      setMessage({ type: "error", text: errorMessages[errorKey] || `エラー: ${error}` });
     }
   }, [searchParams, checkConnection]);
 

@@ -5,10 +5,15 @@ import { getAuthUrl } from "@/lib/google/oauth";
 export async function GET() {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://meo-consul-tool.vercel.app";
 
-  // Check Google credentials first
-  if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
+  const missing: string[] = [];
+  if (!process.env.GOOGLE_CLIENT_ID) missing.push("GOOGLE_CLIENT_ID");
+  if (!process.env.GOOGLE_CLIENT_SECRET) missing.push("GOOGLE_CLIENT_SECRET");
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) missing.push("SUPABASE_SERVICE_ROLE_KEY");
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL) missing.push("NEXT_PUBLIC_SUPABASE_URL");
+
+  if (missing.length > 0) {
     return NextResponse.redirect(
-      `${appUrl}/admin/gbp?error=${encodeURIComponent("google_not_configured")}`
+      `${appUrl}/admin/gbp?error=${encodeURIComponent("env_missing:" + missing.join(","))}`
     );
   }
 
@@ -30,15 +35,14 @@ export async function GET() {
       .single();
 
     if (queryError || !appUser) {
-      console.error("Failed to query user:", queryError);
       return NextResponse.redirect(
-        `${appUrl}/admin/gbp?error=${encodeURIComponent("user_lookup_failed")}`
+        `${appUrl}/admin/gbp?error=${encodeURIComponent("user_lookup_failed:" + (queryError?.message || "no user found"))}`
       );
     }
 
     if (!["agency_admin", "operator"].includes(appUser.role)) {
       return NextResponse.redirect(
-        `${appUrl}/admin/gbp?error=${encodeURIComponent("permission_denied")}`
+        `${appUrl}/admin/gbp?error=${encodeURIComponent("permission_denied:role=" + appUser.role)}`
       );
     }
 
@@ -48,9 +52,10 @@ export async function GET() {
 
     return NextResponse.redirect(authUrl);
   } catch (err) {
-    console.error("Google connect error:", err);
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("Google connect error:", message);
     return NextResponse.redirect(
-      `${appUrl}/admin/gbp?error=${encodeURIComponent("connect_failed")}`
+      `${appUrl}/admin/gbp?error=${encodeURIComponent("connect_failed:" + message)}`
     );
   }
 }

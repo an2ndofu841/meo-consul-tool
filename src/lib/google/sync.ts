@@ -171,14 +171,18 @@ export async function syncPerformance(
 // ---- Check connection status ----
 
 export async function getConnectionStatus(orgId: string) {
-  const supabase = createServiceClient();
+  try {
+    const supabase = createServiceClient();
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data } = await (supabase as any)
-    .from("google_tokens")
-    .select("google_email, created_at, updated_at")
-    .eq("org_id", orgId)
-    .single();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data } = await (supabase as any)
+      .from("google_tokens")
+      .select("google_email, created_at, updated_at")
+      .eq("org_id", orgId)
+      .single();
 
-  return data as { google_email: string; created_at: string; updated_at: string } | null;
+    return data as { google_email: string; created_at: string; updated_at: string } | null;
+  } catch {
+    return null;
+  }
 }
