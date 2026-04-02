@@ -3,6 +3,8 @@ import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { createAuthenticatedClient } from "@/lib/google/oauth";
 import { listAccounts, listLocations, type GbpLocation } from "@/lib/google/gbp-client";
 
+const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+
 async function getAuthForOrg(orgId: string) {
   const sc = createServiceClient();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -27,12 +29,43 @@ function formatAddress(loc: GbpLocation): string {
   ].filter(Boolean).join(" ");
 }
 
+async function getCachedData(sc: ReturnType<typeof createServiceClient>, orgId: string, cacheType: string, cacheKey: string) {
+  const { data } = await sc
+    .from("gbp_cache")
+    .select("data, fetched_at")
+    .eq("org_id", orgId)
+    .eq("cache_type", cacheType)
+    .eq("cache_key", cacheKey)
+    .single();
+
+  if (!data) return null;
+
+  const age = Date.now() - new Date(data.fetched_at).getTime();
+  if (age > CACHE_TTL_MS) return null;
+
+  return data.data;
+}
+
+async function setCachedData(sc: ReturnType<typeof createServiceClient>, orgId: string, cacheType: string, cacheKey: string, data: unknown) {
+  await sc.from("gbp_cache").upsert(
+    {
+      org_id: orgId,
+      cache_type: cacheType,
+      cache_key: cacheKey,
+      data: data as never,
+      fetched_at: new Date().toISOString(),
+    },
+    { onConflict: "org_id,cache_type,cache_key" }
+  );
+}
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const action = searchParams.get("action");
     const accountName = searchParams.get("account");
     const autoImport = searchParams.get("import") === "true";
+    const forceRefresh = searchParams.get("refresh") === "true";
 
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
@@ -47,14 +80,25 @@ export async function GET(request: Request) {
 
     if (!appUser) return NextResponse.json({ error: "User not found" }, { status: 404 });
 
-    const auth = await getAuthForOrg(appUser.org_id);
-
+    // --- Locations ---
     if (action === "locations" && accountName) {
+      if (!forceRefresh) {
+        const cached = await getCachedData(sc, appUser.org_id, "locations", accountName);
+        if (cached) {
+          return NextResponse.json({
+            locations: cached,
+            fromCache: true,
+            message: "キャッシュからロケーションを取得しました（更新する場合は「再取得」を押してください）",
+          });
+        }
+      }
+
+      const auth = await getAuthForOrg(appUser.org_id);
       const gbpLocations = await listLocations(auth, accountName);
 
-      // Auto-import: create client + locations in DB and link to GBP
+      await setCachedData(sc, appUser.org_id, "locations", accountName, gbpLocations);
+
       if (autoImport && gbpLocations.length > 0) {
-        // Ensure a default client exists
         const { data: existingClients } = await sc
           .from("clients")
           .select("id")
@@ -75,7 +119,6 @@ export async function GET(request: Request) {
 
         const imported: string[] = [];
         for (const loc of gbpLocations) {
-          // Check if already linked
           const { data: existing } = await sc
             .from("locations")
             .select("id")
@@ -111,11 +154,35 @@ export async function GET(request: Request) {
       return NextResponse.json({ locations: gbpLocations });
     }
 
+    // --- Accounts ---
+    if (!forceRefresh) {
+      const cached = await getCachedData(sc, appUser.org_id, "accounts", "");
+      if (cached) {
+        return NextResponse.json({
+          accounts: cached,
+          fromCache: true,
+          message: "キャッシュからアカウントを取得しました",
+        });
+      }
+    }
+
+    const auth = await getAuthForOrg(appUser.org_id);
     const accounts = await listAccounts(auth);
+
+    await setCachedData(sc, appUser.org_id, "accounts", "", accounts);
+
     return NextResponse.json({ accounts });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     console.error("GBP accounts error:", message);
+
+    if (message.includes("Quota exceeded")) {
+      return NextResponse.json({
+        error: "Google APIのレート制限に達しました。1〜2分後に再度お試しください。",
+        retryable: true,
+      }, { status: 429 });
+    }
+
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

@@ -310,6 +310,41 @@ export type Database = {
           },
         ]
       }
+      gbp_cache: {
+        Row: {
+          id: string
+          org_id: string
+          cache_type: string
+          cache_key: string
+          data: Json
+          fetched_at: string
+        }
+        Insert: {
+          id?: string
+          org_id: string
+          cache_type: string
+          cache_key?: string
+          data?: Json
+          fetched_at?: string
+        }
+        Update: {
+          id?: string
+          org_id?: string
+          cache_type?: string
+          cache_key?: string
+          data?: Json
+          fetched_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "gbp_cache_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       google_tokens: {
         Row: {
           access_token: string

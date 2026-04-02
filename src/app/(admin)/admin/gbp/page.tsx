@@ -96,7 +96,8 @@ function GbpPageContent() {
     const success = searchParams.get("success");
     const error = searchParams.get("error");
     if (success === "connected") {
-      setMessage({ type: "success", text: "Googleアカウントの接続に成功しました" });
+      setMessage({ type: "success", text: "Googleアカウントの接続に成功しました。アカウントを自動取得中..." });
+      handleLoadAccounts(false);
     } else if (error) {
       const errorKey = error.split(":")[0];
       const errorDetail = error.includes(":") ? error.substring(error.indexOf(":") + 1) : "";
@@ -116,15 +117,25 @@ function GbpPageContent() {
     }
   }, [searchParams, checkConnection]);
 
-  const handleLoadAccounts = async () => {
+  const handleLoadAccounts = async (refresh = false) => {
     try {
       setLoading(true);
-      const res = await fetch("/api/google/accounts");
+      const url = refresh ? "/api/google/accounts?refresh=true" : "/api/google/accounts";
+      const res = await fetch(url);
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "アカウント取得に失敗");
+      if (!res.ok) {
+        if (data.retryable) {
+          setMessage({ type: "error", text: data.error });
+          return;
+        }
+        throw new Error(data.error || "アカウント取得に失敗");
+      }
       setAccounts(data.accounts || []);
       if (data.accounts?.length > 0) {
         setSelectedAccount(data.accounts[0].name);
+      }
+      if (data.fromCache) {
+        setMessage({ type: "success", text: data.message });
       }
     } catch (err) {
       setMessage({ type: "error", text: `アカウント取得エラー: ${err instanceof Error ? err.message : "不明"}` });
@@ -133,19 +144,31 @@ function GbpPageContent() {
     }
   };
 
-  const handleLoadLocations = async () => {
+  const handleLoadLocations = async (refresh = false) => {
     if (!selectedAccount) return;
     try {
       setLoadingLocations(true);
-      const res = await fetch(
-        `/api/google/accounts?action=locations&account=${encodeURIComponent(selectedAccount)}&import=true`
-      );
+      const params = new URLSearchParams({
+        action: "locations",
+        account: selectedAccount,
+        import: "true",
+      });
+      if (refresh) params.set("refresh", "true");
+      const res = await fetch(`/api/google/accounts?${params}`);
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "ロケーション取得に失敗");
+      if (!res.ok) {
+        if (data.retryable) {
+          setMessage({ type: "error", text: data.error });
+          return;
+        }
+        throw new Error(data.error || "ロケーション取得に失敗");
+      }
       setGbpLocations(data.locations || []);
       if (data.imported?.length > 0) {
         setMessage({ type: "success", text: data.message });
         checkConnection();
+      } else if (data.fromCache) {
+        setMessage({ type: "success", text: data.message });
       }
     } catch (err) {
       setMessage({ type: "error", text: `ロケーション取得エラー: ${err instanceof Error ? err.message : "不明"}` });
@@ -353,14 +376,21 @@ function GbpPageContent() {
                     接続されたGoogleアカウントからGBPのアカウントとロケーションを取得します
                   </CardDescription>
                 </div>
-                <Button onClick={handleLoadAccounts} disabled={loading}>
-                  {loading ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <RefreshCw className="mr-2 h-4 w-4" />
+                <div className="flex gap-2">
+                  <Button onClick={() => handleLoadAccounts(false)} disabled={loading}>
+                    {loading ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="mr-2 h-4 w-4" />
+                    )}
+                    アカウント取得
+                  </Button>
+                  {accounts.length > 0 && (
+                    <Button variant="outline" onClick={() => handleLoadAccounts(true)} disabled={loading} size="sm">
+                      再取得
+                    </Button>
                   )}
-                  アカウント取得
-                </Button>
+                </div>
               </div>
             </CardHeader>
             {accounts.length > 0 && (
@@ -383,14 +413,21 @@ function GbpPageContent() {
                       </SelectContent>
                     </Select>
                   </div>
-                  <Button onClick={handleLoadLocations} disabled={loadingLocations || !selectedAccount}>
-                    {loadingLocations ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <Store className="mr-2 h-4 w-4" />
+                  <div className="flex gap-2">
+                    <Button onClick={() => handleLoadLocations(false)} disabled={loadingLocations || !selectedAccount}>
+                      {loadingLocations ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Store className="mr-2 h-4 w-4" />
+                      )}
+                      ロケーション取得
+                    </Button>
+                    {gbpLocations.length > 0 && (
+                      <Button variant="outline" onClick={() => handleLoadLocations(true)} disabled={loadingLocations} size="sm">
+                        再取得
+                      </Button>
                     )}
-                    ロケーション取得
-                  </Button>
+                  </div>
                 </div>
 
                 {/* Locations table */}
