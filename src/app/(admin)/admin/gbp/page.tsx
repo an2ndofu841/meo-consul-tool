@@ -187,6 +187,29 @@ function GbpPageContent() {
     }
   };
 
+  const handleSyncAllReviews = async () => {
+    const linkedLocs = appLocations.filter(l => l.gbp_location_name);
+    if (linkedLocs.length === 0) return;
+    try {
+      setSyncing("all");
+      let totalSynced = 0;
+      for (const loc of linkedLocs) {
+        const res = await fetch("/api/google/sync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "sync_reviews", locationId: loc.id }),
+        });
+        const data = await res.json();
+        if (res.ok) totalSynced += data.syncedCount || 0;
+      }
+      setMessage({ type: "success", text: `全 ${linkedLocs.length} ロケーションから口コミ ${totalSynced} 件を同期しました` });
+    } catch (err) {
+      setMessage({ type: "error", text: `一括同期エラー: ${err instanceof Error ? err.message : "不明"}` });
+    } finally {
+      setSyncing(null);
+    }
+  };
+
   const handleSyncPerformance = async (locationId: string) => {
     try {
       setSyncing(`perf-${locationId}`);
@@ -454,10 +477,24 @@ function GbpPageContent() {
           {/* Data Sync */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">データ同期</CardTitle>
-              <CardDescription>
-                GBPリンク済みのロケーションからデータを取得します
-              </CardDescription>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-lg">データ同期</CardTitle>
+                  <CardDescription>
+                    GBPリンク済みのロケーションからデータを取得します
+                  </CardDescription>
+                </div>
+                {appLocations.filter(l => l.gbp_location_name).length > 0 && (
+                  <Button onClick={handleSyncAllReviews} disabled={syncing !== null}>
+                    {syncing === "all" ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="mr-2 h-4 w-4" />
+                    )}
+                    全ロケーション口コミ一括同期
+                  </Button>
+                )}
+              </div>
             </CardHeader>
             <CardContent>
               {(() => {
