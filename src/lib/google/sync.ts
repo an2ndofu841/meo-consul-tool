@@ -1,6 +1,6 @@
 "use server";
 
-import { createClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/server";
 import { createAuthenticatedClient } from "@/lib/google/oauth";
 import {
   listAccounts,
@@ -15,7 +15,7 @@ import {
 // ---- Helpers ----
 
 async function getAuthClientForOrg(orgId: string) {
-  const supabase = await createClient();
+  const supabase = createServiceClient();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as any;
 
@@ -34,7 +34,7 @@ async function getAuthClientForOrg(orgId: string) {
     tokenRow.refresh_token
   );
 
-  auth.on("tokens", async (tokens) => {
+  auth.on("tokens", async (tokens: { access_token?: string | null; expiry_date?: number | null }) => {
     if (tokens.access_token) {
       await sb
         .from("google_tokens")
@@ -74,7 +74,7 @@ export async function linkGbpLocation(
   gbpLocationName: string,
   gbpPlaceId: string | null
 ) {
-  const supabase = await createClient();
+  const supabase = createServiceClient();
 
   const { error } = await supabase
     .from("locations")
@@ -91,9 +91,8 @@ export async function linkGbpLocation(
 // ---- Sync Reviews ----
 
 export async function syncReviews(orgId: string, locationId: string) {
-  const supabase = await createClient();
+  const supabase = createServiceClient();
 
-  // Get the location's GBP info
   const { data: location } = await supabase
     .from("locations")
     .select("gbp_account_id, gbp_location_name")
@@ -146,7 +145,7 @@ export async function syncPerformance(
   startDate: string,
   endDate: string
 ) {
-  const supabase = await createClient();
+  const supabase = createServiceClient();
 
   const { data: location } = await supabase
     .from("locations")
@@ -172,7 +171,8 @@ export async function syncPerformance(
 // ---- Check connection status ----
 
 export async function getConnectionStatus(orgId: string) {
-  const supabase = await createClient();
+  const supabase = createServiceClient();
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data } = await (supabase as any)
     .from("google_tokens")

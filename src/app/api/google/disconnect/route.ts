@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 
 export async function POST() {
   const supabase = await createClient();
@@ -11,18 +11,19 @@ export async function POST() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { data: appUser } = await supabase
+  const serviceClient = createServiceClient();
+  const { data: appUser } = await serviceClient
     .from("users")
     .select("org_id, role")
     .eq("auth_uid", user.id)
-    .single<{ org_id: string; role: string }>();
+    .single();
 
   if (!appUser || appUser.role !== "agency_admin") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { error } = await (supabase as any)
+  const { error } = await (serviceClient as any)
     .from("google_tokens")
     .delete()
     .eq("org_id", appUser.org_id);

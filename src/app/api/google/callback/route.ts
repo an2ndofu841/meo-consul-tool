@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/server";
 import { exchangeCodeForTokens, getOAuth2Client } from "@/lib/google/oauth";
 import { getGoogleEmail } from "@/lib/google/gbp-client";
 
@@ -23,13 +23,11 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // Decode state
     const state = JSON.parse(
       Buffer.from(stateParam, "base64url").toString()
     );
     const { orgId } = state;
 
-    // Exchange code for tokens
     const tokens = await exchangeCodeForTokens(code);
 
     if (!tokens.access_token || !tokens.refresh_token) {
@@ -38,13 +36,11 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Get Google email
     const oauth2Client = getOAuth2Client();
     oauth2Client.setCredentials(tokens);
     const googleEmail = await getGoogleEmail(oauth2Client);
 
-    // Store tokens in database
-    const supabase = await createClient();
+    const serviceClient = createServiceClient();
 
     const tokenData = {
       org_id: orgId,
@@ -55,9 +51,8 @@ export async function GET(request: NextRequest) {
       scopes: tokens.scope?.split(" ") || [],
     };
 
-    // Upsert (replace existing token for this org)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error: dbError } = await (supabase as any)
+    const { error: dbError } = await (serviceClient as any)
       .from("google_tokens")
       .upsert(tokenData, { onConflict: "org_id" });
 
